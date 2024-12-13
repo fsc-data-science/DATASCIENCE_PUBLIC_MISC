@@ -165,12 +165,20 @@ BEGIN
             COALESCE(price, 0) as price,
             affiliate_id,
             COALESCE(affiliate_amount, 0) as affiliate_amount,
-            COALESCE(platform_fee, 0) as platform_fee,
+            CASE 
+                WHEN platform_name = 'Mitte' THEN 0.015 * COALESCE(price, 0)
+                WHEN platform_name = 'TradePort' THEN 0.025 * COALESCE(price, 0)
+                ELSE COALESCE(platform_fee, 0)
+            END as platform_fee,
             COALESCE(royalty_amount_near, 0) as royalty_amount_near,
             COALESCE(royalty_percent, 0) as royalty_percent,
             COALESCE(royalty_amount_near, 0) + 
             COALESCE(affiliate_amount, 0) +
-            COALESCE(platform_fee, 0) as total_fees_amount,
+            CASE 
+                WHEN platform_name = 'Mitte' THEN 0.015 * COALESCE(price, 0)
+                WHEN platform_name = 'TradePort' THEN 0.025 * COALESCE(price, 0)
+                ELSE COALESCE(platform_fee, 0)
+            END as total_fees_amount,
             royalties,
             n_royalties
         FROM combined_
