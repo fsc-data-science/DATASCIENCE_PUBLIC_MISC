@@ -1,5 +1,6 @@
 select * from datascience_public_misc.near_analytics.nft_collection_daily_metrics
-limit 10;
+where nft_address LIKE 'nft.%'
+limit 50;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
@@ -33,7 +34,6 @@ BEGIN
         SELECT 
             DATE_TRUNC('day', block_timestamp) as day_,
             nft_address,
-            REGEXP_REPLACE(nft_address, '^nft\\.', '') as cleaned_address,
             SPLIT_PART(REGEXP_REPLACE(nft_address, '^nft\\.', ''), '.', 1) as collection_name,
             SUM(price) as nft_volume,
             SUM(affiliate_amount) as affiliate_volume,
