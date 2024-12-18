@@ -1,11 +1,23 @@
 select 
 date_trunc('month', first_transfer) as month_, 
 count(1) as num_tokens
- from datascience_public_misc.near_analytics.token_first_transfers
- group by month_
- order by month_ asc;
+from datascience_public_misc.near_analytics.token_first_transfers
+group by month_
+order by month_ asc;
+ with defi_token_launches AS (
+    select *, 
+ SPLIT_PART(contract_address, '.', -2) as launch_tool
+ from 
+ datascience_public_misc.near_analytics.token_first_transfers
+ )
+ select 
+ case when length(launch_tool) < 1 then 'independent developer' else 
+ launch_tool end as launch_tool,
+ count(1) as n_
+ from defi_token_launches
+ group by launch_tool
+ order by n_ desc;
  
-
 -- Step 1: Create schema
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
 
