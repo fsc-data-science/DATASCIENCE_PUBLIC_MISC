@@ -1,4 +1,4 @@
-select * from datascience_public_misc.near_analytics.weekly_contract_metrics;
+select max(week_) from datascience_public_misc.near_analytics.weekly_contract_metrics;
 
 -- Step 1: Create schema
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
@@ -67,3 +67,11 @@ GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.near_analytics.weekly_cont
 GRANT USAGE ON DATABASE datascience_public_misc TO ROLE VELOCITY_ETHEREUM;
 GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE VELOCITY_ETHEREUM;
 GRANT SELECT ON TABLE datascience_public_misc.near_analytics.weekly_contract_metrics TO ROLE VELOCITY_ETHEREUM;
+
+create or replace task datascience_public_misc.near_analytics.update_weekly_contract_metrics_task
+    warehouse = 'DATA_SCIENCE'
+    schedule = 'USING CRON 0 */12 * * * America/Los_Angeles'
+as
+    call datascience_public_misc.near_analytics.update_weekly_contract_metrics();
+
+alter task datascience_public_misc.near_analytics.update_weekly_contract_metrics_task resume;
