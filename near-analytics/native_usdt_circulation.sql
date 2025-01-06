@@ -26,6 +26,7 @@ EXECUTE AS CALLER
 AS
 $$
 BEGIN
+    -- First merge: Update base metrics
     MERGE INTO datascience_public_misc.near_analytics.near_daily_usdt_supply AS target
     USING (
         WITH date_spine AS (
@@ -75,60 +76,42 @@ BEGIN
             FROM date_spine d
             LEFT JOIN authorized_supply a ON d.day_ = a.day_
             LEFT JOIN treasury_balance t ON d.day_ = t.day_
-        ),
-        
-        running_totals AS (
-            SELECT 
-                day_,
-                SUM(authorized_amount) OVER (ORDER BY day_ ASC) + COALESCE(
-                    (
-                        SELECT total_authorized 
-                        FROM datascience_public_misc.near_analytics.near_daily_usdt_supply 
-                        WHERE day_ < (SELECT MIN(day_) FROM filled_metrics)
-                        ORDER BY day_ DESC 
-                        LIMIT 1
-                    ), 
-                    0
-                ) as total_authorized,
-                SUM(treasury_flow) OVER (ORDER BY day_ ASC) + COALESCE(
-                    (
-                        SELECT treasury_balance 
-                        FROM datascience_public_misc.near_analytics.near_daily_usdt_supply 
-                        WHERE day_ < (SELECT MIN(day_) FROM filled_metrics)
-                        ORDER BY day_ DESC 
-                        LIMIT 1
-                    ), 
-                    0
-                ) as treasury_balance
-            FROM filled_metrics
         )
         
         SELECT 
             day_,
-            total_authorized,
-            treasury_balance,
-            total_authorized - treasury_balance as usdt_in_circulation
-        FROM running_totals
-        WHERE day_ >= COALESCE(
-            DATEADD(day, -2, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.near_daily_usdt_supply)),
-            '2023-06-30'::DATE
-        )
+            authorized_amount as total_authorized,
+            treasury_flow as treasury_balance
+        FROM filled_metrics
     ) AS source
     ON target.day_ = source.day_
     WHEN MATCHED THEN
         UPDATE SET 
             target.total_authorized = source.total_authorized,
             target.treasury_balance = source.treasury_balance,
-            target.usdt_in_circulation = source.usdt_in_circulation,
             target._updated_timestamp = CURRENT_TIMESTAMP()
     WHEN NOT MATCHED THEN
-        INSERT (day_, total_authorized, treasury_balance, usdt_in_circulation)
+        INSERT (day_, total_authorized, treasury_balance)
         VALUES (
             source.day_,
             source.total_authorized, 
-            source.treasury_balance, 
-            source.usdt_in_circulation
+            source.treasury_balance
         );
+
+    -- Second update: Calculate running totals and circulation
+    UPDATE datascience_public_misc.near_analytics.near_daily_usdt_supply t
+    SET total_authorized = s.running_authorized,
+        treasury_balance = s.running_treasury,
+        usdt_in_circulation = s.running_authorized - s.running_treasury,
+        _updated_timestamp = CURRENT_TIMESTAMP()
+    FROM (
+        SELECT 
+            day_,
+            SUM(total_authorized) OVER (ORDER BY day_ ASC) as running_authorized,
+            SUM(treasury_balance) OVER (ORDER BY day_ ASC) as running_treasury
+        FROM datascience_public_misc.near_analytics.near_daily_usdt_supply
+    ) s
+    WHERE t.day_ = s.day_;
 
     RETURN 'NEAR daily USDT supply metrics updated successfully';
 END;
@@ -137,6 +120,14 @@ $$;
 -- Add clustering to the table for better query performance
 ALTER TABLE datascience_public_misc.near_analytics.near_daily_usdt_supply
 CLUSTER BY (day_);
+
+CREATE OR REPLACE TASK datascience_public_misc.near_analytics.update_near_daily_usdt_supply_task
+ WAREHOUSE = 'DATA_SCIENCE'
+ SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+AS 
+ CALL datascience_public_misc.near_analytics.update_near_daily_usdt_supply();
+
+ALTER TASK datascience_public_misc.near_analytics.update_near_daily_usdt_supply_task RESUME;
 
 -- Grant necessary permissions
 GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE INTERNAL_DEV;

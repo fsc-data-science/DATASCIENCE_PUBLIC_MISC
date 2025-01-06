@@ -108,6 +108,15 @@ $$;
 ALTER TABLE datascience_public_misc.near_analytics.near_daily_usdc_supply
 CLUSTER BY (day_);
 
+-- Create task to update data every 12 hours
+CREATE OR REPLACE TASK datascience_public_misc.near_analytics.update_near_daily_usdc_supply_task
+  WAREHOUSE = 'DATA_SCIENCE'
+  SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+AS 
+  CALL datascience_public_misc.near_analytics.update_near_daily_usdc_supply();
+-- Resume the task
+ALTER TASK datascience_public_misc.near_analytics.update_near_daily_usdc_supply_task RESUME;
+
 -- Grant necessary permissions
 GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE INTERNAL_DEV;
 GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.near_analytics.near_daily_usdc_supply TO ROLE INTERNAL_DEV;
