@@ -3,9 +3,9 @@
 NEAR Daily Transaction Fees --------------------------------------------------------------------------------
 */
 
-SELECT *
-FROM datascience_public_misc.near_analytics.near_daily_fees
-LIMIT 10;
+SELECT max(day_)
+FROM datascience_public_misc.near_analytics.near_daily_fees;
+
 
 -- Step 2: Create table based on observation level
 CREATE TABLE IF NOT EXISTS datascience_public_misc.near_analytics.near_daily_fees (

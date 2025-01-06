@@ -1,5 +1,5 @@
-select * from datascience_public_misc.near_analytics.nft_sales_with_royalty
-limit 10;
+select max(block_timestamp) 
+from datascience_public_misc.near_analytics.nft_sales_with_royalty;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
@@ -233,3 +233,13 @@ GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.near_analytics.nft_sales_w
 GRANT USAGE ON DATABASE datascience_public_misc TO ROLE VELOCITY_ETHEREUM;
 GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE VELOCITY_ETHEREUM;
 GRANT SELECT ON TABLE datascience_public_misc.near_analytics.nft_sales_with_royalty TO ROLE VELOCITY_ETHEREUM;
+
+-- Create task to update metrics every 12 hours
+CREATE OR REPLACE TASK datascience_public_misc.near_analytics.update_nft_sales_with_royalty_task
+    WAREHOUSE = 'DATA_SCIENCE'
+    SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+AS
+    CALL datascience_public_misc.near_analytics.update_nft_sales_with_royalty();
+
+-- Resume the task
+ALTER TASK datascience_public_misc.near_analytics.update_nft_sales_with_royalty_task RESUME;

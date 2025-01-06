@@ -1,6 +1,6 @@
 select * from datascience_public_misc.near_analytics.near_project_list;
 select * from datascience_public_misc.near_analytics.near_daily_project_stats
-order by day_ asc;
+order by day_ desc;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;

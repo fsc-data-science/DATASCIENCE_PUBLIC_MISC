@@ -1,5 +1,5 @@
-select * from datascience_public_misc.near_analytics.nft_platform_daily_metrics
-limit 10;
+select max(day_) from datascience_public_misc.near_analytics.nft_platform_daily_metrics;
+
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
