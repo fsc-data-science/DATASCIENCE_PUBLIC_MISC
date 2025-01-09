@@ -1,4 +1,4 @@
-select * 
+select max(day_) 
 from 
 datascience_public_misc.near_analytics.central_exchange_flows
 limit 10;

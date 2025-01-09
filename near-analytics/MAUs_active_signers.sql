@@ -1,3 +1,6 @@
+select max(month_) 
+from datascience_public_misc.near_analytics.monthly_active_signers;
+
 -- Step 1: Create schema (if not already present)
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
 

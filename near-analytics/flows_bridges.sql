@@ -1,4 +1,5 @@
-select * from 
+select max(day_) 
+from 
 datascience_public_misc.near_analytics.bridge_flows_daily; 
 
 -- Step 1: Create schema if it doesn't exist

@@ -1,6 +1,5 @@
-select * from datascience_public_misc.near_analytics.nft_collection_daily_metrics
-where nft_address LIKE 'nft.%'
-limit 50;
+select max(day_) 
+from datascience_public_misc.near_analytics.nft_collection_daily_metrics;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
