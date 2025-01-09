@@ -1,18 +1,20 @@
-select * from datascience_public_misc.near_analytics.near_daily_usdt_supply
+select *,
+sum(authorized_amount) over (order by day_ asc) as usdt_authorized,
+sum(treasury_inflow) over (order by day_ asc) as usdt_treasury_inflow,
+sum(treasury_outflow) over (order by day_ asc) as usdt_treasury_outflow,
+usdt_authorized - (usdt_treasury_inflow - usdt_treasury_outflow) as usdt_in_circulation
+ from datascience_public_misc.near_analytics.near_daily_usdt_supply
 order by day_ desc;
 
 -- Step 1: Create schema if it doesn't exist
-
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
 
 -- Step 2: Create table based on observation level (day)
 CREATE OR REPLACE TABLE datascience_public_misc.near_analytics.near_daily_usdt_supply (
     day_ DATE,
-    total_authorized FLOAT DEFAULT 0,
-    treasury_balance FLOAT DEFAULT 0,
-    usdt_in_circulation FLOAT,
-    _inserted_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
-    _updated_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+    authorized_amount FLOAT DEFAULT 0,
+    treasury_inflow FLOAT DEFAULT 0,
+    treasury_outflow FLOAT DEFAULT 0
 );
 
 -- Step 3: Call the procedure
@@ -26,19 +28,12 @@ EXECUTE AS CALLER
 AS
 $$
 BEGIN
-    -- First merge: Update base metrics
     MERGE INTO datascience_public_misc.near_analytics.near_daily_usdt_supply AS target
     USING (
-        WITH date_spine AS (
-            SELECT DATEADD(day, seq4(), '2023-06-30'::DATE)::DATE as day_
-            FROM TABLE(GENERATOR(ROWCOUNT => 5000))
-            WHERE day_ <= CURRENT_DATE
-        ),
-        
-        authorized_supply AS (
+        WITH authorized_supply AS (
             SELECT 
                 date_trunc('day', block_timestamp)::DATE as day_,
-                SUM(DIV0(args:amount::float, 1e6)) as total_authorized
+                SUM(DIV0(args:amount::float, 1e6)) as authorized_amount
             FROM near.core.fact_actions_events_function_call
             WHERE method_name = 'mint'
                 AND receipt_succeeded = TRUE
@@ -50,14 +45,11 @@ BEGIN
             GROUP BY 1
         ),
         
-        treasury_balance AS (
+        treasury_flows AS (
             SELECT 
                 date_trunc('day', block_timestamp)::DATE as day_,
-                SUM(CASE 
-                    WHEN to_address = 'tether-treasury.near' THEN amount
-                    WHEN from_address = 'tether-treasury.near' THEN -amount
-                    ELSE 0 
-                END) as daily_treasury_flow
+                SUM(CASE WHEN to_address = 'tether-treasury.near' THEN amount ELSE 0 END) as treasury_inflow,
+                SUM(CASE WHEN from_address = 'tether-treasury.near' THEN amount ELSE 0 END) as treasury_outflow
             FROM near.core.ez_token_transfers
             WHERE (to_address = 'tether-treasury.near' OR from_address = 'tether-treasury.near')
                 AND contract_address = 'usdt.tether-token.near'
@@ -68,50 +60,36 @@ BEGIN
             GROUP BY 1
         ),
         
-        filled_metrics AS (
+        combined_metrics AS (
             SELECT 
-                d.day_,
-                COALESCE(a.total_authorized, 0) as authorized_amount,
-                COALESCE(t.daily_treasury_flow, 0) as treasury_flow
-            FROM date_spine d
-            LEFT JOIN authorized_supply a ON d.day_ = a.day_
-            LEFT JOIN treasury_balance t ON d.day_ = t.day_
+                COALESCE(a.day_, t.day_) as day_,
+                COALESCE(a.authorized_amount, 0) as authorized_amount,
+                COALESCE(t.treasury_inflow, 0) as treasury_inflow,
+                COALESCE(t.treasury_outflow, 0) as treasury_outflow
+            FROM authorized_supply a
+            FULL OUTER JOIN treasury_flows t 
+                ON a.day_ = t.day_
+            WHERE COALESCE(a.authorized_amount, 0) != 0 
+               OR COALESCE(t.treasury_inflow, 0) != 0
+               OR COALESCE(t.treasury_outflow, 0) != 0
         )
         
-        SELECT 
-            day_,
-            authorized_amount as total_authorized,
-            treasury_flow as treasury_balance
-        FROM filled_metrics
+        SELECT * FROM combined_metrics
     ) AS source
     ON target.day_ = source.day_
     WHEN MATCHED THEN
         UPDATE SET 
-            target.total_authorized = source.total_authorized,
-            target.treasury_balance = source.treasury_balance,
-            target._updated_timestamp = CURRENT_TIMESTAMP()
+            target.authorized_amount = source.authorized_amount,
+            target.treasury_inflow = source.treasury_inflow,
+            target.treasury_outflow = source.treasury_outflow
     WHEN NOT MATCHED THEN
-        INSERT (day_, total_authorized, treasury_balance)
+        INSERT (day_, authorized_amount, treasury_inflow, treasury_outflow)
         VALUES (
             source.day_,
-            source.total_authorized, 
-            source.treasury_balance
+            source.authorized_amount,
+            source.treasury_inflow,
+            source.treasury_outflow
         );
-
-    -- Second update: Calculate running totals and circulation
-    UPDATE datascience_public_misc.near_analytics.near_daily_usdt_supply t
-    SET total_authorized = s.running_authorized,
-        treasury_balance = s.running_treasury,
-        usdt_in_circulation = s.running_authorized - s.running_treasury,
-        _updated_timestamp = CURRENT_TIMESTAMP()
-    FROM (
-        SELECT 
-            day_,
-            SUM(total_authorized) OVER (ORDER BY day_ ASC) as running_authorized,
-            SUM(treasury_balance) OVER (ORDER BY day_ ASC) as running_treasury
-        FROM datascience_public_misc.near_analytics.near_daily_usdt_supply
-    ) s
-    WHERE t.day_ = s.day_;
 
     RETURN 'NEAR daily USDT supply metrics updated successfully';
 END;
@@ -121,12 +99,14 @@ $$;
 ALTER TABLE datascience_public_misc.near_analytics.near_daily_usdt_supply
 CLUSTER BY (day_);
 
+-- Create task to update data every 12 hours
 CREATE OR REPLACE TASK datascience_public_misc.near_analytics.update_near_daily_usdt_supply_task
- WAREHOUSE = 'DATA_SCIENCE'
- SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+  WAREHOUSE = 'DATA_SCIENCE'
+  SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
 AS 
- CALL datascience_public_misc.near_analytics.update_near_daily_usdt_supply();
+  CALL datascience_public_misc.near_analytics.update_near_daily_usdt_supply();
 
+-- Resume the task
 ALTER TASK datascience_public_misc.near_analytics.update_near_daily_usdt_supply_task RESUME;
 
 -- Grant necessary permissions
