@@ -100,3 +100,36 @@ GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.avalanche_analytics.avax_d
 GRANT USAGE ON DATABASE datascience_public_misc TO ROLE VELOCITY_ETHEREUM;
 GRANT USAGE ON SCHEMA datascience_public_misc.avalanche_analytics TO ROLE VELOCITY_ETHEREUM;
 GRANT SELECT ON TABLE datascience_public_misc.avalanche_analytics.avax_daily_usdc_supply TO ROLE VELOCITY_ETHEREUM;
+
+
+;
+/* Date Filled w/ Preceding */
+
+with usdc_circ AS (
+select *, 
+sum(net_change) over (order by day_ asc) as circulation_
+from datascience_public_misc.avalanche_analytics.avax_daily_usdc_supply
+),
+
+date_spine AS (
+    SELECT DISTINCT 
+        dateadd('day', seq4(), '2024-01-01'::date) as day_
+    FROM TABLE(generator(rowcount => 5000))
+    WHERE day_ <= CURRENT_DATE
+),
+
+usdc_filled AS (
+    SELECT 
+        d.day_,
+        'USDC' as token_,
+        COALESCE(u.circulation_, 
+                 LAST_VALUE(u.circulation_ IGNORE NULLS) OVER (
+                     ORDER BY d.day_
+                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                 )) as circulation_
+    FROM date_spine d
+    LEFT JOIN usdc_circ u
+        ON d.day_ = u.day_
+)
+
+SELECT * FROM usdc_filled;
