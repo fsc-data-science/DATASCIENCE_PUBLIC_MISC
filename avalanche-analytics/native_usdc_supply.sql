@@ -1,3 +1,8 @@
+select *, 
+sum(net_change) over (order by day_ asc) as usdc_in_circulation
+from datascience_public_misc.avalanche_analytics.avax_daily_usdc_supply
+order by day_ desc;
+
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.avalanche_analytics;
 
@@ -83,7 +88,7 @@ CREATE OR REPLACE TASK datascience_public_misc.avalanche_analytics.update_avax_d
   SCHEDULE = 'USING CRON 45 3 * * * America/Los_Angeles'
 AS 
   CALL datascience_public_misc.avalanche_analytics.update_avax_daily_usdc_supply();
-  
+
 -- Resume the task
 ALTER TASK datascience_public_misc.avalanche_analytics.update_avax_daily_usdc_supply_task RESUME;
 
