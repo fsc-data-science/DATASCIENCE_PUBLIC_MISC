@@ -74,6 +74,16 @@ BEGIN
 END;
 $$;
 
+-- Create task to update inner transactions every 12 hours
+CREATE OR REPLACE TASK datascience_public_misc.eclipse_analytics.update_daily_program_inner_tx_task
+    WAREHOUSE = 'DATA_SCIENCE'
+    SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+AS
+    CALL datascience_public_misc.eclipse_analytics.update_daily_program_inner_tx();
+
+-- Resume the task (tasks are created in suspended state by default)
+ALTER TASK datascience_public_misc.eclipse_analytics.update_daily_program_inner_tx_task RESUME;
+
 -- Grant necessary permissions for Studio access
 GRANT USAGE ON SCHEMA datascience_public_misc.eclipse_analytics TO ROLE INTERNAL_DEV;
 GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.eclipse_analytics.daily_program_inner_tx TO ROLE INTERNAL_DEV;
