@@ -29,11 +29,12 @@ signer_program_history AS (
     group by signer
 )
 
-    SELECT 
+ SELECT 
         AVG(txs) as avg_txs,
+        median(txs) as median_txs,
         AVG(txs_per_active_day) as avg_txs_per_active_day,
+        median(txs_per_active_day) as median_txs_per_active_day,
         (select AVG(programs_used) from signer_program_history) as avg_programs_used,
         AVG(days_active) as avg_days_active,
         AVG(days_since_first_tx) as avg_days_since_first_tx
     FROM signer_tx_history;
-
