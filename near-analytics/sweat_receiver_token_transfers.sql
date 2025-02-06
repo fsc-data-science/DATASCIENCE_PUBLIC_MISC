@@ -1,89 +1,172 @@
-with near_sends AS (
-select t.block_timestamp, block_id, t.tx_hash, 
-from_address, to_address, transfer_type, 'out' as direction_,
-contract_address, t.symbol, t.amount
-from 
-  near.core.ez_token_transfers t 
-        inner join datascience_public_misc.near_analytics.sweat_welcome_transfers w 
-            on t.from_address = w.sweat_receiver 
-where t.block_timestamp > current_date - 10
-),
-
-near_receives AS (
-select t.block_timestamp, block_id, t.tx_hash, 
-from_address, to_address, transfer_type,  'in' as direction_,
-contract_address, t.symbol, t.amount
-from 
-  near.core.ez_token_transfers t 
-        inner join datascience_public_misc.near_analytics.sweat_welcome_transfers w 
-            on t.to_address = w.sweat_receiver 
-where t.block_timestamp > current_date - 10
-)
-
-select * from near_sends 
-UNION ALL 
-select * from near_receives;
-
-
-
-with near_sends AS (
-select t.block_timestamp, block_id, t.tx_hash, 
-from_address, to_address, transfer_type, 'out' as direction_,
-contract_address, t.symbol, t.amount
-from near.core.ez_token_transfers t 
-where t.from_address in ('971abc7c7aa4741afba9ff22ae32034bb45b098ecedd9f7e1fc61847ffb076a0',
-    '0a0b2f912ffbc0e69aed7160d53c75b109ecefabeb3c4f0b64fa5e7b51f17c01',
-    '86311693397c03de0a8465b6cc80664e0a2832b8c7216cdc97c2864316a96dd2')
-),
-
-near_receives AS (
-select t.block_timestamp, block_id, t.tx_hash, 
-from_address, to_address, transfer_type, 'in' as direction_,
-contract_address, t.symbol, t.amount
-from near.core.ez_token_transfers t 
-where t.to_address in ('971abc7c7aa4741afba9ff22ae32034bb45b098ecedd9f7e1fc61847ffb076a0',
-    '0a0b2f912ffbc0e69aed7160d53c75b109ecefabeb3c4f0b64fa5e7b51f17c01',
-    '86311693397c03de0a8465b6cc80664e0a2832b8c7216cdc97c2864316a96dd2')
-),
-
-near_fees_paid AS (
-    select tx_signer as user_, sum(DIV0(transaction_fee, 1e24)) as total_fees
-    from near.core.fact_transactions 
-    where tx_signer in ('971abc7c7aa4741afba9ff22ae32034bb45b098ecedd9f7e1fc61847ffb076a0',
-    '0a0b2f912ffbc0e69aed7160d53c75b109ecefabeb3c4f0b64fa5e7b51f17c01',
-    '86311693397c03de0a8465b6cc80664e0a2832b8c7216cdc97c2864316a96dd2')
-    group by tx_signer
-), 
-
-select_users AS (
-select * from near_sends 
-UNION ALL 
-select * from near_receives
-),
-
-net_transfers AS (
-select 
-contract_address, symbol,
-case when direction_ = 'out' then from_address else to_address end as user_,
-sum(case when direction_ = 'out' then -amount else amount end) as amount,
-from select_users 
-group by contract_address, symbol, user_
-)
 
 select 
-user_, 
-contract_address, symbol,
-amount, 
-case when contract_address = 'wrap.near' then COALESCE(total_fees, 0) else 0 end as fees_paid,
-case when contract_address = 'wrap.near' then amount - fees_paid else amount end as amount_net_fees
-from net_transfers left join near_fees_paid using (user_)
+   contract_address,
+   symbol,
+   sum(net_change) current_balance
+from datascience_public_misc.near_analytics.sweat_receivers_token_balance_changes
+where symbol IN ('wNEAR', 'token.sweat', 'USDC','BRRR','USDt','USDT.e','USDT','USDC.e','LINEAR','STNEAR', 'ETH')
+group by contract_address, symbol
+having current_balance > 0
 ;
 
-select 
-block_timestamp, 
-block_id, tx_hash, 
-tx_signer, div0(transaction_fee, 1e24) as transaction_fee
- from near.core.fact_transactions 
-where tx_signer = '971abc7c7aa4741afba9ff22ae32034bb45b098ecedd9f7e1fc61847ffb076a0'
-and block_timestamp >= '2023-01-01'
+-- Step 1: Create or replace table
+CREATE OR REPLACE TABLE datascience_public_misc.near_analytics.sweat_receivers_token_balance_changes (
+    day_ DATE,
+    user_ STRING,
+    contract_address STRING,
+    symbol STRING,
+    transfer_in FLOAT DEFAULT 0,
+    transfer_out FLOAT DEFAULT 0,
+    tx_fees_paid_in_token FLOAT DEFAULT 0,
+    net_change FLOAT
+);
 
+call datascience_public_misc.near_analytics.update_sweat_receivers_token_balance_changes();
+-- Step 2: Create or replace procedure
+CREATE OR REPLACE PROCEDURE datascience_public_misc.near_analytics.update_sweat_receivers_token_balance_changes()
+RETURNS STRING
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+$$
+BEGIN
+    MERGE INTO datascience_public_misc.near_analytics.sweat_receivers_token_balance_changes AS target
+    USING (
+        WITH lookback_date AS (
+            SELECT COALESCE(
+                DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_receivers_token_balance_changes)),
+                '2021-01-01'
+            ) as lookback_start_date
+        ),
+        
+        outbound_transfers AS (
+            SELECT 
+                t.block_timestamp,
+                t.from_address as user_,
+                t.contract_address,
+                t.symbol,
+                t.amount,
+                'out' as direction_
+            FROM near.core.ez_token_transfers t
+            INNER JOIN datascience_public_misc.near_analytics.sweat_welcome_transfers w 
+                ON t.from_address = w.sweat_receiver
+            WHERE date_trunc('day', t.block_timestamp) >= (SELECT lookback_start_date FROM lookback_date)
+        ),
+        
+        inbound_transfers AS (
+            SELECT 
+                t.block_timestamp,
+                t.to_address as user_,
+                t.contract_address,
+                t.symbol,
+                t.amount,
+                'in' as direction_
+            FROM near.core.ez_token_transfers t
+            INNER JOIN datascience_public_misc.near_analytics.sweat_welcome_transfers w 
+                ON t.to_address = w.sweat_receiver
+            WHERE date_trunc('day', t.block_timestamp) >= (SELECT lookback_start_date FROM lookback_date)
+        ),
+        
+        all_transfers AS (
+            SELECT * FROM outbound_transfers
+            UNION ALL 
+            SELECT * FROM inbound_transfers
+        ),
+        
+        daily_transfers AS (
+            SELECT 
+                date_trunc('day', block_timestamp) as day_,
+                user_,
+                contract_address,
+                symbol,
+                SUM(CASE WHEN direction_ = 'in' THEN amount ELSE 0 END) as transfer_in,
+                SUM(CASE WHEN direction_ = 'out' THEN amount ELSE 0 END) as transfer_out
+            FROM all_transfers
+            GROUP BY 1,2,3,4
+        ),
+        
+        daily_fees AS (
+            SELECT 
+                date_trunc('day', t.block_timestamp)::DATE as day_,
+                t.tx_signer as user_,
+                'wrap.near' as contract_address,
+                'wNEAR' as symbol,
+                SUM(DIV0(t.transaction_fee, 1e24)) as tx_fees_paid_in_token
+            FROM near.core.fact_transactions t
+            INNER JOIN datascience_public_misc.near_analytics.sweat_welcome_transfers w 
+                ON t.tx_signer = w.sweat_receiver
+            WHERE date_trunc('day', t.block_timestamp) >= (SELECT lookback_start_date FROM lookback_date)
+            GROUP BY 1,2,3,4
+        ),
+        
+        combined_metrics AS (
+            SELECT 
+                COALESCE(t.day_, f.day_) as day_,
+                COALESCE(t.user_, f.user_) as user_,
+                COALESCE(t.contract_address, f.contract_address) as contract_address,
+                COALESCE(t.symbol, f.symbol) as symbol,
+                COALESCE(t.transfer_in, 0) as transfer_in,
+                COALESCE(t.transfer_out, 0) as transfer_out,
+                COALESCE(f.tx_fees_paid_in_token, 0) as tx_fees_paid_in_token,
+                transfer_in - transfer_out - 
+                    CASE WHEN COALESCE(t.contract_address, f.contract_address) = 'wrap.near' 
+                         THEN COALESCE(f.tx_fees_paid_in_token, 0) 
+                         ELSE 0 
+                    END as net_change
+            FROM daily_transfers t
+            FULL OUTER JOIN daily_fees f 
+                ON t.day_ = f.day_ 
+                AND t.user_ = f.user_
+                AND t.contract_address = f.contract_address
+            WHERE COALESCE(t.transfer_in, 0) != 0 
+               OR COALESCE(t.transfer_out, 0) != 0
+               OR COALESCE(f.tx_fees_paid_in_token, 0) != 0
+        )
+        
+        SELECT * FROM combined_metrics
+    ) AS source
+    ON target.day_ = source.day_ 
+    AND target.user_ = source.user_
+    AND target.contract_address = source.contract_address
+    WHEN MATCHED THEN
+        UPDATE SET 
+            target.transfer_in = source.transfer_in,
+            target.transfer_out = source.transfer_out,
+            target.tx_fees_paid_in_token = source.tx_fees_paid_in_token,
+            target.net_change = source.net_change
+    WHEN NOT MATCHED THEN
+        INSERT (day_, user_, contract_address, symbol, transfer_in, transfer_out, tx_fees_paid_in_token, net_change)
+        VALUES (
+            source.day_,
+            source.user_,
+            source.contract_address,
+            source.symbol,
+            source.transfer_in,
+            source.transfer_out,
+            source.tx_fees_paid_in_token,
+            source.net_change
+        );
+
+    RETURN 'NEAR daily token balances updated successfully';
+END;
+$$;
+
+-- Step 3: Add clustering
+ALTER TABLE datascience_public_misc.near_analytics.sweat_receivers_token_balance_changes
+CLUSTER BY (day_, contract_address);
+
+-- Step 4: Create and resume task
+CREATE OR REPLACE TASK datascience_public_misc.near_analytics.update_sweat_receivers_token_balance_changes_task
+  WAREHOUSE = 'DATA_SCIENCE'
+  SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+AS 
+  CALL datascience_public_misc.near_analytics.update_sweat_receivers_token_balance_changes();
+
+ALTER TASK datascience_public_misc.near_analytics.update_sweat_receivers_token_balance_changes_task RESUME;
+
+-- Step 5: Grant permissions
+GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE INTERNAL_DEV;
+GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.near_analytics.sweat_receivers_token_balance_changes TO ROLE INTERNAL_DEV;
+GRANT USAGE ON DATABASE datascience_public_misc TO ROLE VELOCITY_ETHEREUM;
+GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE VELOCITY_ETHEREUM;
+GRANT SELECT ON TABLE datascience_public_misc.near_analytics.sweat_receivers_token_balance_changes TO ROLE VELOCITY_ETHEREUM;
