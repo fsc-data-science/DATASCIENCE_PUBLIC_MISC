@@ -1,6 +1,5 @@
 select 
-    signer_,
-    first_tx_date
+    max(first_tx_date)
 from datascience_public_misc.eclipse_analytics.signer_first_timestamp;
 
 
@@ -60,7 +59,7 @@ CLUSTER BY (signer_);
 
 CREATE OR REPLACE TASK datascience_public_misc.eclipse_analytics.update_signer_first_timestamp_task
     WAREHOUSE = 'DATA_SCIENCE'
-    SCHEDULE = 'USING CRON 0 0 * * * America/Los_Angeles'
+    SCHEDULE = 'USING CRON 0 */2 * * * America/Los_Angeles'
 AS
     CALL datascience_public_misc.eclipse_analytics.update_signer_first_timestamp();
 

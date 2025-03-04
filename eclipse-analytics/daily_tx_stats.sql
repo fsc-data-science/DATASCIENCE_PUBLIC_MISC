@@ -1,6 +1,6 @@
 
-select * from datascience_public_misc.eclipse_analytics.daily_tx_stats;
-;
+select max(day_) from datascience_public_misc.eclipse_analytics.daily_tx_stats;
+
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.eclipse_analytics;
@@ -74,6 +74,16 @@ $$;
 -- Add clustering to improve query performance
 ALTER TABLE datascience_public_misc.eclipse_analytics.daily_tx_stats
 CLUSTER BY (day_);
+
+
+-- Create task to update daily signers every 12 hours
+CREATE OR REPLACE TASK datascience_public_misc.eclipse_analytics.update_daily_tx_stats_task
+    WAREHOUSE = 'DATA_SCIENCE'
+    SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+AS CALL datascience_public_misc.eclipse_analytics.update_daily_tx_stats();
+
+ALTER TASK datascience_public_misc.eclipse_analytics.update_daily_tx_stats_task RESUME;
+
 
 -- Set appropriate permissions
 GRANT USAGE ON SCHEMA datascience_public_misc.eclipse_analytics TO ROLE INTERNAL_DEV;

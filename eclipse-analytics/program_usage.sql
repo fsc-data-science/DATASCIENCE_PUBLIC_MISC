@@ -1,6 +1,5 @@
 select * from datascience_public_misc.eclipse_analytics.program_usage;
-
--- Step 1: Create schema if it doesn't exist
+-- Step 1: Create schema if it doesn't exist-- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.eclipse_analytics;
 
 -- Step 2: Create table based on observation level (program-bucket level)
@@ -14,19 +13,19 @@ CREATE OR REPLACE TABLE datascience_public_misc.eclipse_analytics.program_usage 
 -- Step 3: Call the procedure
 CALL datascience_public_misc.eclipse_analytics.update_program_usage();
 
--- Step 4: Define the procedure
+-- Step 4: Define the procedure with temp table and error handling
 CREATE OR REPLACE PROCEDURE datascience_public_misc.eclipse_analytics.update_program_usage()
 RETURNS STRING
 LANGUAGE SQL
 EXECUTE AS CALLER
 AS
 $$
+DECLARE
+    error_occurred BOOLEAN DEFAULT FALSE;
+    error_message VARCHAR;
 BEGIN
-    -- Truncate the table before inserting new data
-    TRUNCATE TABLE datascience_public_misc.eclipse_analytics.program_usage;
-    
-    -- Insert new data
-    INSERT INTO datascience_public_misc.eclipse_analytics.program_usage
+    -- Create temporary table with fully qualified name
+    CREATE OR REPLACE TEMPORARY TABLE datascience_public_misc.eclipse_analytics.temp_program_usage AS
     WITH excluded_programs AS (
         SELECT address FROM (VALUES
             ('BPFLoaderUpgradeab1e11111111111111111111111'),
@@ -82,8 +81,36 @@ BEGIN
         n_tx
     FROM bucketed_users
     ORDER BY program_bucket;
-    
-    RETURN 'Eclipse program usage statistics updated successfully';
+
+    -- Verify temp table has data
+    IF ((SELECT COUNT(*) FROM datascience_public_misc.eclipse_analytics.temp_program_usage) = 0) THEN
+        SET error_occurred = TRUE;
+        SET error_message = 'Error: No data generated in temporary table';
+        RETURN error_message;
+    END IF;
+
+    BEGIN
+        -- Start transaction
+        BEGIN TRANSACTION;
+        
+        -- Clear existing data
+        DELETE FROM datascience_public_misc.eclipse_analytics.program_usage;
+        
+        -- Insert new data
+        INSERT INTO datascience_public_misc.eclipse_analytics.program_usage
+        SELECT * FROM datascience_public_misc.eclipse_analytics.temp_program_usage;
+        
+        -- Commit transaction
+        COMMIT;
+        
+        RETURN 'Eclipse program usage statistics updated successfully';
+    EXCEPTION
+        WHEN OTHER THEN
+            ROLLBACK;
+            SET error_occurred = TRUE;
+            SET error_message = 'Error during data update: ' || SQLSTATE || ' - ' || SQLERRM;
+            RETURN error_message;
+    END;
 END;
 $$;
 
@@ -97,11 +124,10 @@ AS
 -- Resume the task
 ALTER TASK datascience_public_misc.eclipse_analytics.update_program_usage_task RESUME;
 
--- Grant schema usage
+-- Grant permissions
 GRANT USAGE ON SCHEMA datascience_public_misc.eclipse_analytics TO ROLE INTERNAL_DEV;
 GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.eclipse_analytics.program_usage TO ROLE INTERNAL_DEV;
 
--- Individual access for Velocity Ethereum
 GRANT USAGE ON DATABASE datascience_public_misc TO ROLE VELOCITY_ETHEREUM;
 GRANT USAGE ON SCHEMA datascience_public_misc.eclipse_analytics TO ROLE VELOCITY_ETHEREUM;
 GRANT SELECT ON TABLE datascience_public_misc.eclipse_analytics.program_usage TO ROLE VELOCITY_ETHEREUM;
