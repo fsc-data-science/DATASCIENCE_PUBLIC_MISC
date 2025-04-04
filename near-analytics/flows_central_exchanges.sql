@@ -9,7 +9,7 @@ limit 10;
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
 
 -- Step 2: Create table based on observation level (day-exchange level)
-CREATE TABLE IF NOT EXISTS datascience_public_misc.near_analytics.central_exchange_flows (
+CREATE OR REPLACE TABLE datascience_public_misc.near_analytics.central_exchange_flows (
     day_ TIMESTAMP,
     exchange_name VARCHAR,
     inbound_volume_usd FLOAT,
