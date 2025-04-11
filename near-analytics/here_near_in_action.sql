@@ -1,4 +1,5 @@
-select * from datascience_public_misc.near_analytics.here_near_in_action;
+select * from datascience_public_misc.near_analytics.here_near_in_action
+limit 10;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;

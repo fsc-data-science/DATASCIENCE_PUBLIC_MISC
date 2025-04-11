@@ -52,13 +52,26 @@ BEGIN
                 ('sweat_treasury.near'),
                 ('claim.sweat'),
                 ('jars.sweat'),
+                ('ecosystem.sweat'),
                 ('chorusone.poolv1.near'),
                 ('learn.sweat'),
                 ('spin.sweat'),
                 ('sweat_validator.poolv1.near'),
                 ('sweat_validator.near'),
                 ('near'),
-                ('tge-lockup.sweat')              
+                ('tge-lockup.sweat'),
+                ('workingcapital.sweat'),
+                ('treasury.sweat'),
+                ('community.sweat'),
+                ('sweat_welcome.near'),
+                ('sweat-relayer.near'),
+                ('oracle.sweat'),
+                ('fees.sweat'),
+                ('distributions.treasury.sweat'),
+                ('distributions.sweat'),
+                ('governance.sweat'),
+                ('vote1.sweat'),
+                ('jars-oracle.sweat')  
 
             ) adr(address)
         )
