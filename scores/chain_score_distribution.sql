@@ -4,9 +4,10 @@ score_date, -- the date when scores for all users on the chain were calculated.
 score, -- The score itself, i.e., 0, 1, 2, 3, etc. up to 15.
 count_with_score -- The # of addresses with that score. 
 from datascience_public_misc.score_analytics.chain_score_distribution
-where score_date = '2024-11-20'
-and chain = 'sei'
+where chain = 'stellar'
 ;
+
+
 
 select 
 * from
@@ -259,6 +260,20 @@ BEGIN
                 total_score as score,
                 COUNT(*) as count_with_score
             FROM datascience.onchain_scores.thorchain
+            WHERE score_date >= COALESCE(
+                DATEADD(day, -2, (SELECT MAX(score_date) FROM datascience_public_misc.score_analytics.chain_score_distribution)),
+                '2024-01-01'
+            )
+            GROUP BY chain, score_date, total_score
+
+            UNION ALL
+
+            SELECT 
+                'stellar' as chain,
+                score_date,
+                total_score as score,
+                COUNT(*) as count_with_score
+            FROM datascience.onchain_scores.stellar
             WHERE score_date >= COALESCE(
                 DATEADD(day, -2, (SELECT MAX(score_date) FROM datascience_public_misc.score_analytics.chain_score_distribution)),
                 '2024-01-01'
