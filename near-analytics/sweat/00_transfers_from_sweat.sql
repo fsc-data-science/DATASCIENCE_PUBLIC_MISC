@@ -1,8 +1,27 @@
-select 
-sweat_receiver
-from datascience_public_misc.near_analytics.sweat_welcome_transfers
-;
+select count(sweat_receiver), count(distinct sweat_receiver) from 
+datascience_public_misc.near_analytics.sweat_welcome_transfers
+limit 10;
 
+
+
+-- Identified ANY transfers from Sweat Welcome Addresses 
+/*
+ WHERE from_address IN (
+            'sweat_welcome.near',
+            'sweat_oracle_0.near',
+            'sweat_oracle_1.near',
+            'sweat_oracle_2.near',
+            'sweat_oracle_3.near',
+            'sweat_oracle_4.near',
+            'sweat_oracle_5.near',
+            'sweat_oracle_6.near',
+            'sweat_oracle_7.near',
+            'sweat_oracle_8.near',
+            'sweat_oracle_9.near' 
+        ) 
+ */
+
+-- see: 01_sweat_receiver_first_receive.sql & 02_sweat_receiver_first_receive_criteria.sql for qualifying address filters. 
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
@@ -83,7 +102,19 @@ BEGIN
             symbol,
             amount
         FROM near.core.ez_token_transfers
-        WHERE from_address = 'sweat_welcome.near'
+        WHERE from_address IN (
+            'sweat_welcome.near',
+            'sweat_oracle_0.near',
+            'sweat_oracle_1.near',
+            'sweat_oracle_2.near',
+            'sweat_oracle_3.near',
+            'sweat_oracle_4.near',
+            'sweat_oracle_5.near',
+            'sweat_oracle_6.near',
+            'sweat_oracle_7.near',
+            'sweat_oracle_8.near',
+            'sweat_oracle_9.near' 
+        ) 
             AND block_timestamp >= COALESCE(
                 DATEADD(day, -2, (SELECT MAX(block_timestamp) FROM datascience_public_misc.near_analytics.sweat_welcome_transfers)),
                 '2022-01-01'
@@ -106,10 +137,10 @@ BEGIN
 END;
 $$;
 
--- Create task to update sweat welcome transfers every 12 hours
+-- Create task to update sweat welcome transfers every 4 hours
 CREATE OR REPLACE TASK datascience_public_misc.near_analytics.update_sweat_welcome_transfers_task
     WAREHOUSE = 'DATA_SCIENCE'
-    SCHEDULE = 'USING CRON 0 */12 * * * America/Los_Angeles'
+    SCHEDULE = 'USING CRON 0 */4 * * * America/Los_Angeles'
 AS
     CALL datascience_public_misc.near_analytics.update_sweat_welcome_transfers();
 
@@ -124,3 +155,4 @@ GRANT ALL PRIVILEGES ON TABLE datascience_public_misc.near_analytics.sweat_welco
 GRANT USAGE ON DATABASE datascience_public_misc TO ROLE VELOCITY_ETHEREUM;
 GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE VELOCITY_ETHEREUM;
 GRANT SELECT ON TABLE datascience_public_misc.near_analytics.sweat_welcome_transfers TO ROLE VELOCITY_ETHEREUM;
+

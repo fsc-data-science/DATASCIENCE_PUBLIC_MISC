@@ -1,4 +1,5 @@
-select * from datascience_public_misc.near_analytics.sweat_near_in_action;
+select max(day_) from datascience_public_misc.near_analytics.sweat_near_in_action
+limit 10;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
@@ -15,7 +16,7 @@ CREATE OR REPLACE TABLE datascience_public_misc.near_analytics.sweat_near_in_act
 -- Step 3: Call the procedure
 CALL datascience_public_misc.near_analytics.update_sweat_near_in_action();
 
--- Step 4: Define the procedure with a 90-day lookback period
+-- Step 4: Define the procedure with a 2-day lookback period
 CREATE OR REPLACE PROCEDURE datascience_public_misc.near_analytics.update_sweat_near_in_action()
 RETURNS STRING
 LANGUAGE SQL
@@ -25,31 +26,24 @@ $$
 BEGIN
     MERGE INTO datascience_public_misc.near_analytics.sweat_near_in_action AS target
     USING (
-        WITH active_users AS (
-            SELECT DISTINCT
-                CASE WHEN tx_signer = 'sweat-relayer.near' THEN tx_receiver ELSE tx_signer END AS user_
-            FROM near.core.fact_transactions 
-            WHERE (
-                tx_signer = 'sweat-relayer.near'
-                OR tx_signer IN (SELECT sweat_relay_user FROM datascience_public_misc.near_analytics.sweat_relay_usage)
-                OR tx_signer IN (SELECT sweat_receiver FROM datascience_public_misc.near_analytics.sweat_welcome_transfers)
-            )
-            HAVING user_ IN (
-                SELECT sweat_relay_user FROM datascience_public_misc.near_analytics.sweat_relay_usage 
-                UNION ALL 
-                SELECT sweat_receiver FROM datascience_public_misc.near_analytics.sweat_welcome_transfers
-            )
-        ),
 
+    -- identifies qualified accounts that can be treated as sweat users 
+    with check_first_receive as (
+        select sweat_receiver from datascience_public_misc.near_analytics.qualified_sweat_users
+        where is_first_sweat_receive = 1 
+    ),
         near_dex_buys AS (
             SELECT 
                 DATE_TRUNC('day', block_timestamp) as select_day_,
                 SUM(CASE WHEN token_out_contract = 'wrap.near' THEN amount_out ELSE 0 END) as near_bought
             FROM near.defi.ez_dex_swaps
-            WHERE block_timestamp >= current_date - 90
+            WHERE block_timestamp >= COALESCE(
+                DATEADD(day, -2, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_near_in_action)),
+                '1970-01-01'
+            )
             AND token_out_contract = 'wrap.near'
             AND (
-                trader IN (SELECT user_ FROM active_users)
+                trader IN (SELECT sweat_receiver FROM check_first_receive)
                 OR trader = 'sweat-relayer.near'
             )
             GROUP BY 1
@@ -60,11 +54,14 @@ BEGIN
                 DATE_TRUNC('day', block_timestamp) as select_day_,
                 SUM(CASE WHEN symbol = 'wNEAR' AND actions = 'deposit' THEN amount ELSE 0 END) as near_deposited
             FROM near.defi.ez_lending
-            WHERE block_timestamp >= current_date - 90
+            WHERE block_timestamp >= COALESCE(
+                DATEADD(day, -2, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_near_in_action)),
+                '1970-01-01'
+            )
             AND symbol = 'wNEAR'
             AND actions = 'deposit'
             AND (
-                sender_id IN (SELECT user_ FROM active_users)
+                sender_id IN (SELECT sweat_receiver FROM check_first_receive)
                 OR sender_id = 'sweat-relayer.near'
             )
             GROUP BY 1
@@ -75,11 +72,14 @@ BEGIN
                 DATE_TRUNC('day', block_timestamp) as select_day_,
                 SUM(amount_in) as near_to_staked
             FROM near.defi.ez_dex_swaps
-            WHERE block_timestamp >= current_date - 90
+            WHERE block_timestamp >= COALESCE(
+                DATEADD(day, -2, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_near_in_action)),
+                '1970-01-01'
+            )
             AND token_in_contract = 'wrap.near'
             AND token_out_contract IN ('linear-protocol.near', 'meta-pool.near')
             AND (
-                trader IN (SELECT user_ FROM active_users)
+                trader IN (SELECT sweat_receiver FROM check_first_receive)
                 OR trader = 'sweat-relayer.near'
             )
             GROUP BY select_day_
@@ -113,7 +113,6 @@ BEGIN
             source.near_deposited_,
             source.near_traded_for_staked_near_,
             source.near_in_action
-
         );
 
     RETURN 'NEAR usage metrics updated successfully';
