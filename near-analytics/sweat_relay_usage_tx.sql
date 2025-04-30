@@ -87,4 +87,4 @@ AS
     CALL datascience_public_misc.near_analytics.update_sweat_relay_usage();
 
 -- Resume the task
-ALTER TASK datascience_public_misc.near_analytics.update_sweat_relay_usage_task RESUME;
+ALTER TASK datascience_public_misc.near_analytics.update_sweat_relay_usage_task SUSPEND;

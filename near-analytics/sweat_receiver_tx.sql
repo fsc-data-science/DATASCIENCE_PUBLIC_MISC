@@ -107,7 +107,7 @@ AS
     CALL datascience_public_misc.near_analytics.update_sweat_welcome_tx_stats();
 
 -- Resume the task
-ALTER TASK datascience_public_misc.near_analytics.update_sweat_welcome_tx_stats_task RESUME;
+ALTER TASK datascience_public_misc.near_analytics.update_sweat_welcome_tx_stats_task SUSPEND;
 
 
 -- Set appropriate permissions for Studio access

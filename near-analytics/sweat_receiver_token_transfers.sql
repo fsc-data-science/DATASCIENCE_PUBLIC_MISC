@@ -177,7 +177,7 @@ AS
     CALL datascience_public_misc.near_analytics.update_sweat_users_daily_token_net_change();
 
 -- Resume the task
-ALTER TASK datascience_public_misc.near_analytics.update_sweat_users_daily_token_net_change_task RESUME;
+ALTER TASK datascience_public_misc.near_analytics.update_sweat_users_daily_token_net_change_task SUSPEND;
 
 -- Grant appropriate permissions
 GRANT USAGE ON SCHEMA datascience_public_misc.near_analytics TO ROLE INTERNAL_DEV;
