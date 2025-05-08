@@ -1,8 +1,10 @@
 
-select *
+select 
+*
 from datascience_public_misc.near_analytics.sweat_users_daily_token_net_change
 where day_ >= current_date - 5
-limit 100;
+and user_ = 'f752b64ef07237302c4d2d9d9f287a3adb13c80a9ff80f4b9b1769f5b659932e'
+;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
@@ -13,10 +15,10 @@ CREATE OR REPLACE TABLE datascience_public_misc.near_analytics.sweat_users_daily
     user_ VARCHAR,
     contract_address VARCHAR,
     symbol VARCHAR,
+    transfer_type VARCHAR,
     transfer_in FLOAT,
     transfer_out FLOAT,
-    tx_fees_paid_in_token FLOAT,
-    net_change FLOAT
+    tx_fees_paid_in_token FLOAT
 );
 
 -- Step 3: Call the procedure
@@ -37,6 +39,7 @@ BEGIN
                 date_trunc('day', t.block_timestamp) as day_,
                 from_address as user_,
                 'out' as direction_,
+                transfer_type,
                 contract_address,
                 symbol,
                 sum(amount) as amount
@@ -58,7 +61,7 @@ BEGIN
                 DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_users_daily_token_net_change)),
                 '1970-01-01'
             )
-            GROUP BY day_, user_, direction_, contract_address, symbol 
+            GROUP BY day_, user_, direction_, transfer_type, contract_address, symbol 
         ),
         
         inbound_transfers AS (
@@ -66,6 +69,7 @@ BEGIN
                 date_trunc('day', t.block_timestamp) as day_,
                 to_address as user_,
                 'in' as direction_,
+                transfer_type,
                 contract_address,
                 symbol,
                 sum(amount) as amount
@@ -87,7 +91,7 @@ BEGIN
                 DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_users_daily_token_net_change)),
                 '1970-01-01'
             )
-            GROUP BY day_, user_, direction_, contract_address, symbol 
+            GROUP BY day_, user_, direction_, transfer_type, contract_address, symbol 
         ),
         
         all_transfers AS (
@@ -102,10 +106,11 @@ BEGIN
                 user_,
                 contract_address,
                 symbol,
+                transfer_type,
                 SUM(CASE WHEN direction_ = 'in' THEN amount ELSE 0 END) as transfer_in,
                 SUM(CASE WHEN direction_ = 'out' THEN amount ELSE 0 END) as transfer_out
             FROM all_transfers
-            GROUP BY day_, user_, contract_address, symbol
+            GROUP BY day_, user_, contract_address, symbol, transfer_type
         ),
 
         daily_direct_fees AS (
@@ -114,6 +119,7 @@ BEGIN
                 tx_signer as user_,
                 'wrap.near' as contract_address,
                 'wNEAR' as symbol,
+                'native' as transfer_type,
                 SUM(DIV0(t.transaction_fee, 1e24)) as tx_fees_paid_in_token
             FROM near.core.fact_transactions t
             INNER JOIN datascience_public_misc.near_analytics.qualified_sweat_users s 
@@ -122,7 +128,7 @@ BEGIN
                 DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_users_daily_token_net_change)),
                 '1970-01-01'
             )
-            GROUP BY day_, user_, contract_address, symbol
+            GROUP BY day_, user_, contract_address, symbol, transfer_type
         ),
        
         daily_relay_fees AS (
@@ -131,6 +137,7 @@ BEGIN
                 tx_receiver as user_,
                 'wrap.near' as contract_address,
                 'wNEAR' as symbol,
+                'native' as transfer_type,
                 SUM(DIV0(t.transaction_fee, 1e24)) as tx_fees_paid_in_token
             FROM near.core.fact_transactions t
             INNER JOIN datascience_public_misc.near_analytics.qualified_sweat_users s 
@@ -140,7 +147,7 @@ BEGIN
                 DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_users_daily_token_net_change)),
                 '1970-01-01'
             )
-            GROUP BY day_, user_, contract_address, symbol
+            GROUP BY day_, user_, contract_address, symbol, transfer_type
         ),
 
         combined_fees AS (
@@ -149,13 +156,14 @@ BEGIN
                 user_, 
                 contract_address, 
                 symbol,
+                transfer_type,
                 SUM(tx_fees_paid_in_token) as tx_fees_paid_in_token
             FROM (
                 SELECT * FROM daily_direct_fees
                 UNION ALL
                 SELECT * FROM daily_relay_fees
             )
-            GROUP BY day_, user_, contract_address, symbol
+            GROUP BY day_, user_, contract_address, symbol, transfer_type
         ),
         
         final_data AS (
@@ -163,20 +171,17 @@ BEGIN
                 COALESCE(t.day_, f.day_) as day_,
                 COALESCE(t.user_, f.user_) as user_,
                 COALESCE(t.contract_address, f.contract_address) as contract_address,
+                COALESCE(t.transfer_type, f.transfer_type) as transfer_type,
                 COALESCE(t.symbol, f.symbol) as symbol,
                 COALESCE(t.transfer_in, 0) as transfer_in,
                 COALESCE(t.transfer_out, 0) as transfer_out,
-                COALESCE(f.tx_fees_paid_in_token, 0) as tx_fees_paid_in_token,
-                transfer_in - transfer_out - 
-                    CASE WHEN COALESCE(t.contract_address, f.contract_address) = 'wrap.near' 
-                         THEN COALESCE(f.tx_fees_paid_in_token, 0) 
-                         ELSE 0 
-                    END as net_change
+                COALESCE(f.tx_fees_paid_in_token, 0) as tx_fees_paid_in_token
             FROM daily_transfers t
             FULL JOIN combined_fees f 
                 ON t.day_ = f.day_ 
                 AND t.user_ = f.user_
                 AND t.contract_address = f.contract_address
+                AND t.transfer_type = f.transfer_type
         )
         
         SELECT * FROM final_data
@@ -185,16 +190,16 @@ BEGIN
         AND target.user_ = source.user_
         AND target.contract_address = source.contract_address
         AND target.symbol = source.symbol
+        AND target.transfer_type = source.transfer_type
     WHEN MATCHED THEN
         UPDATE SET 
             transfer_in = source.transfer_in,
             transfer_out = source.transfer_out,
-            tx_fees_paid_in_token = source.tx_fees_paid_in_token,
-            net_change = source.net_change
+            tx_fees_paid_in_token = source.tx_fees_paid_in_token
     WHEN NOT MATCHED THEN
-        INSERT (day_, user_, contract_address, symbol, transfer_in, transfer_out, tx_fees_paid_in_token, net_change)
-        VALUES (source.day_, source.user_, source.contract_address, source.symbol, 
-                source.transfer_in, source.transfer_out, source.tx_fees_paid_in_token, source.net_change);
+        INSERT (day_, user_, contract_address, symbol, transfer_type, transfer_in, transfer_out, tx_fees_paid_in_token)
+        VALUES (source.day_, source.user_, source.contract_address, source.symbol, source.transfer_type, 
+                source.transfer_in, source.transfer_out, source.tx_fees_paid_in_token);
 
     RETURN 'SWEAT users daily token net change updated successfully';
 END;
