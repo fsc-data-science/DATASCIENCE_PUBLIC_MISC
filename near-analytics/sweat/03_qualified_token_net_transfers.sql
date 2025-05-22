@@ -1,9 +1,10 @@
-
 select 
-symbol, transfer_type,
-sum(transfer_in - transfer_out - tx_fees_paid_in_token) as net_change
+contract_address,
+transfer_type,
+sum(transfer_in - transfer_out - tx_fees_paid_in_token) as estimated_balance
 from datascience_public_misc.near_analytics.sweat_users_daily_token_net_change
 group by 1, 2
+;
 ;
 
 -- Step 1: Create schema if it doesn't exist
@@ -47,13 +48,7 @@ BEGIN
             INNER JOIN datascience_public_misc.near_analytics.qualified_sweat_users s 
                 ON t.from_address = s.sweat_receiver
             WHERE contract_address IN (
-                'wrap.near',
-                'token.sweat',
-                '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1', -- USDC 
-                'meta-pool.near',
-                'usdt.tether-token.near',
-                'linear-protocol.near',
-                'aurora'
+                'wrap.near'
             )
             AND amount >= 0
             AND s.is_first_sweat_receive = 1
@@ -77,13 +72,7 @@ BEGIN
             INNER JOIN datascience_public_misc.near_analytics.qualified_sweat_users s 
                 ON t.to_address = s.sweat_receiver
             WHERE contract_address IN (
-                'wrap.near',
-                'token.sweat',
-                '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1', -- USDC 
-                'meta-pool.near',
-                'usdt.tether-token.near',
-                'linear-protocol.near',
-                'aurora'
+                'wrap.near'
             )
             AND amount >= 0
             -- overpayments of gas not debited so this system credit causes overcounting 
