@@ -1,6 +1,6 @@
-select count(sweat_receiver), count(distinct sweat_receiver) from 
+select max(block_timestamp) from 
 datascience_public_misc.near_analytics.sweat_welcome_transfers
-limit 10;
+;
 
 
 
@@ -32,8 +32,7 @@ CREATE OR REPLACE TABLE datascience_public_misc.near_analytics.sweat_welcome_tra
     tx_hash VARCHAR,
     sweat_receiver VARCHAR,
     symbol VARCHAR,
-    amount FLOAT,
-    PRIMARY KEY (block_timestamp, tx_hash, sweat_receiver)
+    amount FLOAT
 );
 
 -- Add clustering to the table
