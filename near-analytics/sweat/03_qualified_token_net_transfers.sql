@@ -1,9 +1,9 @@
 
 select 
-*
+symbol, transfer_type,
+sum(transfer_in - transfer_out - tx_fees_paid_in_token) as net_change
 from datascience_public_misc.near_analytics.sweat_users_daily_token_net_change
-where day_ >= current_date - 5
-and user_ = 'f752b64ef07237302c4d2d9d9f287a3adb13c80a9ff80f4b9b1769f5b659932e'
+group by 1, 2
 ;
 
 -- Step 1: Create schema if it doesn't exist
@@ -86,7 +86,11 @@ BEGIN
                 'aurora'
             )
             AND amount >= 0
-                        AND s.is_first_sweat_receive = 1
+            -- overpayments of gas not debited so this system credit causes overcounting 
+            -- unfortunately overpayment refund NOT proportional to gas used vs gas attached 
+            -- cannot reproduce system refund calculations at the tx/receipt level 
+            and from_address != 'system' 
+            AND s.is_first_sweat_receive = 1
             AND t.block_timestamp >= COALESCE(
                 DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_users_daily_token_net_change)),
                 '1970-01-01'
@@ -166,14 +170,39 @@ BEGIN
             GROUP BY day_, user_, contract_address, symbol, transfer_type
         ),
         
+        daily_wnear_sales AS (
+            SELECT
+                date_trunc('day', s.block_timestamp) AS day_,
+                s.trader AS user_,
+                'wrap.near' AS contract_address,
+                'wNEAR' AS symbol,
+                'nep141' AS transfer_type,
+                SUM(s.amount_in) AS amount_sold
+            FROM near.defi.ez_dex_swaps s
+            INNER JOIN datascience_public_misc.near_analytics.qualified_sweat_users q
+                ON s.trader = q.sweat_receiver
+            WHERE s.token_in_contract = 'wrap.near'
+              AND q.is_first_sweat_receive = 1
+              AND s.block_timestamp >= COALESCE(
+                    DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.sweat_users_daily_token_net_change)),
+                    '1970-01-01'
+                )
+            GROUP BY day_, user_, contract_address, symbol, transfer_type
+        ),
+        
         final_data AS (
             SELECT 
-                COALESCE(t.day_, f.day_) as day_,
-                COALESCE(t.user_, f.user_) as user_,
-                COALESCE(t.contract_address, f.contract_address) as contract_address,
-                COALESCE(t.transfer_type, f.transfer_type) as transfer_type,
-                COALESCE(t.symbol, f.symbol) as symbol,
-                COALESCE(t.transfer_in, 0) as transfer_in,
+                COALESCE(t.day_, f.day_, s.day_) as day_,
+                COALESCE(t.user_, f.user_, s.user_) as user_,
+                COALESCE(t.contract_address, f.contract_address, s.contract_address) as contract_address,
+                COALESCE(t.transfer_type, f.transfer_type, s.transfer_type) as transfer_type,
+                COALESCE(t.symbol, f.symbol, s.symbol) as symbol,
+                CASE 
+                    WHEN COALESCE(t.contract_address, f.contract_address, s.contract_address) = 'wrap.near'
+                     AND COALESCE(t.transfer_type, f.transfer_type, s.transfer_type) = 'nep141'
+                    THEN COALESCE(t.transfer_in, 0) - COALESCE(s.amount_sold, 0)
+                    ELSE COALESCE(t.transfer_in, 0)
+                END as transfer_in,
                 COALESCE(t.transfer_out, 0) as transfer_out,
                 COALESCE(f.tx_fees_paid_in_token, 0) as tx_fees_paid_in_token
             FROM daily_transfers t
@@ -182,6 +211,12 @@ BEGIN
                 AND t.user_ = f.user_
                 AND t.contract_address = f.contract_address
                 AND t.transfer_type = f.transfer_type
+            LEFT JOIN daily_wnear_sales s
+                ON COALESCE(t.day_, f.day_) = s.day_
+                AND COALESCE(t.user_, f.user_) = s.user_
+                AND COALESCE(t.contract_address, f.contract_address) = s.contract_address
+                AND COALESCE(t.transfer_type, f.transfer_type) = s.transfer_type
+                AND COALESCE(t.symbol, f.symbol) = s.symbol
         )
         
         SELECT * FROM final_data
@@ -207,7 +242,7 @@ $$;
 
 -- Add clustering to the table for better query performance
 ALTER TABLE datascience_public_misc.near_analytics.sweat_users_daily_token_net_change
-CLUSTER BY (day_, contract_address);
+CLUSTER BY (day_, contract_address, transfer_type);
 
 -- Create task to update token activity every 12 hours
 CREATE OR REPLACE TASK datascience_public_misc.near_analytics.update_sweat_users_daily_token_net_change_task
