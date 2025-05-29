@@ -1,6 +1,24 @@
-select * from 
+select 
+user_,
+contract_address,
+transfer_type,
+sum(transfer_in - transfer_out - tx_fees_paid_in_token) as estimated_balance
+from 
 datascience_public_misc.near_analytics.here_users_daily_token_net_change
-limit 10;
+group by 1, 2, 3
+order by 4 asc
+;
+
+select 
+user_,
+contract_address,
+symbol,
+transfer_type,
+sum(transfer_in - transfer_out - tx_fees_paid_in_token) as estimated_balance
+ from datascience_public_misc.near_analytics.here_users_daily_token_net_change
+group by 1, 2, 3, 4
+order by 5 asc
+;
 
 -- Step 1: Create schema if it doesn't exist
 CREATE SCHEMA IF NOT EXISTS datascience_public_misc.near_analytics;
@@ -126,8 +144,8 @@ BEGIN
                 'nep141' AS transfer_type,
                 SUM(s.amount_in) AS amount_sold
             FROM near.defi.ez_dex_swaps s
-            INNER JOIN datascience_public_misc.near_analytics.here_relay_usage q
-                ON s.trader = q.here_relay_user
+             INNER JOIN here_users h
+                ON s.trader = h.here_user
             WHERE s.token_in_contract = 'wrap.near'
               AND s.block_timestamp >= COALESCE(
                     DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.here_users_daily_token_net_change)),
@@ -162,15 +180,8 @@ BEGIN
                 AND COALESCE(t.contract_address, f.contract_address) = s.contract_address
                 AND COALESCE(t.transfer_type, f.transfer_type) = s.transfer_type
                 AND COALESCE(t.symbol, f.symbol) = s.symbol
-            WHERE COALESCE(t.transfer_in, 0) != 0 
-               OR COALESCE(t.transfer_out, 0) != 0
-               OR COALESCE(f.tx_fees_paid_in_token, 0) != 0
         )
         SELECT * FROM final_data
-        WHERE day_ >= COALESCE(
-            DATEADD(day, -3, (SELECT MAX(day_) FROM datascience_public_misc.near_analytics.here_users_daily_token_net_change)),
-            '1970-01-01'
-        )
     ) AS src
     ON target.day_ = src.day_
     AND target.user_ = src.user_
